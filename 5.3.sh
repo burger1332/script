@@ -71,7 +71,7 @@ br_step_install_samba() {
   info "BR-SRV: шаг 1 — установка Samba AD DC и зависимостей"
   ensure_network_and_dns || return 1
   
-  # Проверяем, не установлен ли уже Samba
+  # Проверяем, не установлен ли уже Samba AD DC
   if check_samba_installed; then
     ok "Samba уже установлен"
     return 0
@@ -82,42 +82,37 @@ br_step_install_samba() {
   
   info "Установка Samba AD DC для ALT Linux..."
   
-  # Для ALT Linux используем правильные имена пакетов
-  if apt-get install -y samba samba-ad-dc samba-client krb5-server krb5-client winbind; then
-    ok "Основные пакеты Samba установлены"
+  # Устанавливаем пакет для Domain Controller
+  if apt-get install -y samba-ad-dc; then
+    ok "Samba AD DC установлен"
   else
-    # Пробуем установить по отдельности
-    warn "Пробуем альтернативный метод установки..."
-    apt-get install -y samba || {
-      err "Не удалось установить базовый пакет samba"
+    # Если отдельного пакета нет, устанавливаем основные пакеты
+    warn "Пакет samba-ad-dc не найден, устанавливаем основные пакеты Samba..."
+    apt-get install -y samba samba-dc krb5-server krb5-client winbind || {
+      err "Не удалось установить пакеты Samba"
       return 1
     }
-    
-    # Пробуем установить остальные пакеты если есть
-    apt-get install -y krb5-server krb5-client 2>/dev/null || true
-    apt-get install -y winbind 2>/dev/null || true
   fi
   
+  # Дополнительные пакеты для работы
+  apt-get install -y krb5-user samba-client winbind 2>/dev/null || true
+  
   # Проверяем установку
-  if check_samba_installed; then
+  if command -v samba-tool >/dev/null 2>&1; then
     ok "Samba успешно установлен"
     info "Версия Samba: $(samba-tool --version 2>/dev/null || echo 'недоступна')"
   else
-    # Проверяем что вообще установлено
-    info "Установленные пакеты Samba:"
-    rpm -qa | grep -i samba || true
-    rpm -qa | grep -i krb5 || true
+    # Ищем где находится samba-tool
+    warn "samba-tool не найден в PATH, ищем в системе..."
+    find /usr -name "samba-tool" 2>/dev/null || true
     
-    # Если samba-tool не найден, но samba установлен, ищем бинарники
-    if [ -f /usr/sbin/samba ]; then
-      ok "Samba установлен, но samba-tool может быть в другом пакете"
-      warn "Попробуйте установить samba-ad-dc или samba-dc отдельно"
-    else
-      err "Samba не установлен корректно."
-      info "Доступные пакеты Samba:"
-      apt-cache search samba | grep -i samba || true
-      return 1
-    fi
+    # Проверяем какие пакеты установлены
+    info "Установленные пакеты Samba:"
+    rpm -qa | grep -i samba
+    
+    err "Samba не установлен корректно. Попробуйте установить вручную:"
+    echo "apt-get install -y samba-ad-dc krb5-server krb5-client"
+    return 1
   fi
 }
 br_step_provision() {
